@@ -20,6 +20,8 @@ static void extract_unbounded_literal(char** p, struct jpath_token* token);
 static void extract_unbounded_numeric_literal(char** p, struct jpath_token* token);
 static void raise_error(const char* msg, char* json_path, char* cur_pos);
 
+static void unescape_literal(struct jpath_token* token);
+
 const char* LEX_STR[] = {
     "LEX_AND",             /* && */
     "LEX_CHILD_SEP",       /* , */
@@ -54,6 +56,7 @@ bool scan(char** p, struct jpath_token* token, char* json_path) {
   token->len = 0;
   token->type = LEX_NOT_FOUND;
   token->val = NULL;
+  token->requires_free = false;
 
   while (CUR_CHAR() != '\0' && token->type == LEX_NOT_FOUND) {
     switch (CUR_CHAR()) {
@@ -254,6 +257,15 @@ bool scan(char** p, struct jpath_token* token, char* json_path) {
   return false;
 }
 
+void free_lex_strings(const struct jpath_token* lex_tok, int lex_tok_count) {
+  int x;
+  for (x = 0; x < lex_tok_count; x++) {
+    if (lex_tok[x].requires_free) {
+      efree(lex_tok[x].val);
+    }
+  }
+}
+
 static void raise_error(const char* msg, char* json_path, char* cur_pos) {
   zend_throw_exception_ex(spl_ce_RuntimeException, 0, "%s at position %ld", msg, (cur_pos - json_path));
 }
@@ -279,22 +291,19 @@ static bool extract_quoted_literal(char** p, char* json_path, struct jpath_token
     return false;
   }
 
+  bool escaped = false;
   token->len = 0;
   token->val = *p;
   token->type = LEX_LITERAL;
 
   while (CUR_CHAR() != '\0') {
-    /* Find escaped quotes and backslashes and remove the escaping by shifting the string */
     if (CUR_CHAR() == '\\') {
       if (PEEK_CHAR() == '\\' || PEEK_CHAR() == '\'' || PEEK_CHAR() == '"') {
-        memmove(*p, *p + 1, strlen(*p));
+        escaped = true;
         token->len++;
         NEXT_CHAR();
-        continue;
       }
-    }
-
-    if (CUR_CHAR() == quote_type) {
+    } else if (CUR_CHAR() == quote_type) {
       break;
     }
 
@@ -304,7 +313,29 @@ static bool extract_quoted_literal(char** p, char* json_path, struct jpath_token
 
   NEXT_CHAR();
 
+  if (escaped) {
+    unescape_literal(token);
+  }
+
   return true;
+}
+
+static void unescape_literal(struct jpath_token* token) {
+  char* s = emalloc(token->len * sizeof(char));
+  int i, len = 0;
+
+  for (i = 0; i < token->len; i++) {
+    if (token->val[i] == '\\') {
+      if (token->val[i + 1] == '\\' || token->val[i + 1] == '\'' || token->val[i + 1] == '"') {
+        i++;
+      }
+    }
+    s[len++] = token->val[i];
+  }
+
+  token->val = s;
+  token->len = len;
+  token->requires_free = true;
 }
 
 static bool extract_regex(char** p, char* json_path, struct jpath_token* token) {

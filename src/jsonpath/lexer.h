@@ -38,10 +38,12 @@ struct jpath_token {
   lex_token type;
   char* val;
   int len;
+  bool requires_free;
 };
 
 extern const char* LEX_STR[];
 
 bool scan(char** p, struct jpath_token* token, char* json_path);
+void free_lex_strings(const struct jpath_token* lex_tok, int lex_tok_count);
 
 #endif /* LEXER_H */

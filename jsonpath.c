@@ -37,19 +37,14 @@ PHP_METHOD(JsonPath, find) {
     return;
   }
 
-  /* Keep the original parameter untouched for the stack trace and instead work with a copy that might be modified
-   * during processing, e.g. due to escaped quotes in string literals */
-  char* j_path_work_copy = strdup(j_path);
-
   /* tokenize JSON-path string */
 
-  struct jpath_token lex_tok[LEX_TOK_ARR_LEN];
+  struct jpath_token lex_tok[LEX_TOK_ARR_LEN] = {0};
   int lex_tok_count = 0;
 
-  bool scan_ok = scan_tokens(j_path_work_copy, lex_tok, &lex_tok_count);
+  bool scan_ok = scan_tokens(j_path, lex_tok, &lex_tok_count);
 
   if (!scan_ok) {
-    free(j_path_work_copy);
     return;
   }
 
@@ -64,8 +59,8 @@ PHP_METHOD(JsonPath, find) {
   struct ast_node* head = parse_jsonpath(lex_tok, &i, lex_tok_count, &pool);
 
   if (head == NULL) {
-    free(j_path_work_copy);
     free_php_objects(&pool);
+    free_lex_strings(lex_tok, lex_tok_count);
     return;
   }
 
@@ -79,8 +74,8 @@ PHP_METHOD(JsonPath, find) {
 
   eval_ast(search_target, search_target, head, return_value);
 
-  free(j_path_work_copy);
   free_php_objects(&pool);
+  free_lex_strings(lex_tok, lex_tok_count);
 
   /* return false if no results were found by the JSON-path query */
 
